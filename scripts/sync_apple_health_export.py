@@ -10,6 +10,8 @@ from health_agent_bridge.apple_health_importer import AppleHealthXmlImporter
 from health_agent_bridge.config import settings
 from health_agent_bridge.database import Database
 from health_agent_bridge.export_archive import newest_export_in
+from health_agent_bridge.health_coverage import write_health_coverage
+from health_agent_bridge.repository import HealthRepository
 
 
 def refresh_agent_summary(api_base: str, api_key: str) -> dict[str, object]:
@@ -69,6 +71,13 @@ def main() -> None:
         database_url=args.database_url,
     )
     importer = AppleHealthXmlImporter(database)
+    repository = HealthRepository(database)
+    care_context_dir = Path(
+        os.environ.get(
+            "HEALTH_EXPORT_COVERAGE_CONTEXT_DIR",
+            "/home/mauro/Dev/openclaw-mauro/data/workspace/care/context",
+        )
+    )
     result = importer.import_export(
         export_path=export_path,
         user_name=args.user_name,
@@ -76,6 +85,23 @@ def main() -> None:
         incremental=not args.full,
         overlap_days=args.overlap_days,
         force=args.force,
+    )
+
+    coverage_path = args.storage_dir / "datamart_coverage.json"
+    datamart_coverage = importer.build_datamart_coverage_report(args.user_name)
+    coverage_json = json.dumps(datamart_coverage, ensure_ascii=True, indent=2)
+    coverage_path.write_text(coverage_json, encoding="utf-8")
+    care_datamart = care_context_dir / "datamart_coverage.json"
+    if care_context_dir.exists():
+        care_datamart.write_text(coverage_json, encoding="utf-8")
+
+    health_coverage_path = write_health_coverage(
+        repository=repository,
+        user_name=args.user_name,
+        storage_dir=args.storage_dir,
+        care_context_dir=care_context_dir,
+        timezone=settings.timezone,
+        clear_pending=not result.skipped,
     )
 
     payload: dict[str, object] = {
@@ -86,6 +112,26 @@ def main() -> None:
         "imported_days": result.imported_days,
         "start_date": result.start_date.isoformat() if result.start_date else None,
         "end_date": result.end_date.isoformat() if result.end_date else None,
+        "previous_latest_date": (
+            result.previous_latest_date.isoformat()
+            if result.previous_latest_date
+            else None
+        ),
+        "new_latest_date": (
+            result.new_latest_date.isoformat() if result.new_latest_date else None
+        ),
+        "backfill_start_date": (
+            result.backfill_start_date.isoformat()
+            if result.backfill_start_date
+            else None
+        ),
+        "backfill_end_date": (
+            result.backfill_end_date.isoformat() if result.backfill_end_date else None
+        ),
+        "backfill_missing_dates": result.backfill_missing_dates or [],
+        "datamart_coverage_path": str(coverage_path),
+        "datamart_coverage": datamart_coverage,
+        "health_coverage_path": str(health_coverage_path),
         "state_path": str(args.state_path),
     }
 

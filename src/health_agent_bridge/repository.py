@@ -147,6 +147,83 @@ class HealthRepository:
             return None
         return date.fromisoformat(str(row["latest_date"]))
 
+    def get_earliest_rollup_date(self, user_name: str) -> date | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT MIN(metric_date) AS earliest_date
+                FROM daily_health_rollups
+                WHERE user_name = ?
+                """,
+                (user_name,),
+            ).fetchone()
+        if row is None or row["earliest_date"] is None:
+            return None
+        return date.fromisoformat(str(row["earliest_date"]))
+
+    def find_missing_rollup_dates(
+        self,
+        user_name: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[date]:
+        if start_date > end_date:
+            return []
+
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT metric_date
+                FROM daily_health_rollups
+                WHERE user_name = ?
+                  AND metric_date >= ?
+                  AND metric_date <= ?
+                """,
+                (user_name, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+
+        present = {date.fromisoformat(str(row["metric_date"])) for row in rows}
+        missing: list[date] = []
+        current = start_date
+        while current <= end_date:
+            if current not in present:
+                missing.append(current)
+            current += timedelta(days=1)
+        return missing
+
+    def get_datamart_coverage(self, user_name: str) -> dict[str, Any]:
+        earliest = self.get_earliest_rollup_date(user_name)
+        latest = self.get_latest_rollup_date(user_name)
+        if earliest is None or latest is None:
+            return {
+                "user_name": user_name,
+                "earliest_date": None,
+                "latest_date": None,
+                "days_in_db": 0,
+                "missing_dates_in_range": [],
+            }
+
+        missing = self.find_missing_rollup_dates(user_name, earliest, latest)
+        with self.database.connect() as connection:
+            count_row = connection.execute(
+                """
+                SELECT COUNT(*) AS total_days
+                FROM daily_health_rollups
+                WHERE user_name = ?
+                """,
+                (user_name,),
+            ).fetchone()
+
+        return {
+            "user_name": user_name,
+            "earliest_date": earliest.isoformat(),
+            "latest_date": latest.isoformat(),
+            "days_in_db": int(count_row["total_days"] or 0),
+            "calendar_days_in_range": (latest - earliest).days + 1,
+            "missing_dates_in_range": [day.isoformat() for day in missing],
+            "missing_days_count": len(missing),
+        }
+
     def get_day_context(self, user_name: str, summary_date: date) -> dict[str, Any]:
         metric_date = summary_date.isoformat()
         week_start = (summary_date - timedelta(days=7)).isoformat()

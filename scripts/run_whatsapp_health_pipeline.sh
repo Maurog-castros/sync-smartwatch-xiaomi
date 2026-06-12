@@ -41,7 +41,13 @@ case "$MODE" in
     exec "$PYTHON_BIN" "$ROOT/scripts/health_export_reminder.py" "$@"
     ;;
   download)
+    if [[ "${HEALTH_EXPORT_SOURCE:-telegram}" == "telegram" ]]; then
+      exec "$PYTHON_BIN" "$ROOT/scripts/telegram_fetch_export.py" "$@"
+    fi
     exec "$PYTHON_BIN" "$ROOT/scripts/whatsapp_download_export.py" --headless "$@"
+    ;;
+  telegram-fetch)
+    exec "$PYTHON_BIN" "$ROOT/scripts/telegram_fetch_export.py" "$@"
     ;;
   sync)
     if [[ -f "$ROOT/.env.server" ]] && command -v docker >/dev/null 2>&1; then
@@ -50,7 +56,9 @@ case "$MODE" in
         -v "$ROOT/src:/app/src:ro" \
         -v "$ROOT/scripts:/app/scripts:ro" \
         -v "$ROOT/storage:/app/storage" \
+        -v "/home/mauro/Dev/openclaw-mauro/data/workspace/care/context:/care/context" \
         -e PYTHONPATH=/app/src \
+        -e HEALTH_EXPORT_COVERAGE_CONTEXT_DIR=/care/context \
         sync-smartwatch-xiaomi-health-agent-bridge \
         python /app/scripts/sync_apple_health_export.py --refresh-summary "$@"
     else
@@ -58,7 +66,11 @@ case "$MODE" in
     fi
     ;;
   download-sync)
-    DOWNLOAD_JSON="$("$PYTHON_BIN" "$ROOT/scripts/whatsapp_download_export.py" --headless "$@")"
+    if [[ "${HEALTH_EXPORT_SOURCE:-telegram}" == "telegram" ]]; then
+      DOWNLOAD_JSON="$("$PYTHON_BIN" "$ROOT/scripts/telegram_fetch_export.py" "$@")"
+    else
+      DOWNLOAD_JSON="$("$PYTHON_BIN" "$ROOT/scripts/whatsapp_download_export.py" --headless "$@")"
+    fi
     printf '%s\n' "$DOWNLOAD_JSON"
     if "$PYTHON_BIN" -c "import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get('downloaded') else 2)" "$DOWNLOAD_JSON"; then
       "$ROOT/scripts/run_whatsapp_health_pipeline.sh" sync "$@"
@@ -69,8 +81,23 @@ case "$MODE" in
   login)
     exec "$PYTHON_BIN" "$ROOT/scripts/whatsapp_download_export.py" --login "$@"
     ;;
+  refresh-coverage)
+    if [[ -f "$ROOT/.env.server" ]] && command -v docker >/dev/null 2>&1; then
+      exec docker run --rm --network openclaw_openclaw_net \
+        --env-file "$ROOT/.env.server" \
+        -v "$ROOT/src:/app/src:ro" \
+        -v "$ROOT/scripts:/app/scripts:ro" \
+        -v "$ROOT/storage:/app/storage" \
+        -v "/home/mauro/Dev/openclaw-mauro/data/workspace/care/context:/care/context" \
+        -e PYTHONPATH=/app/src \
+        -e HEALTH_EXPORT_COVERAGE_CONTEXT_DIR=/care/context \
+        sync-smartwatch-xiaomi-health-agent-bridge \
+        python /app/scripts/refresh_health_coverage.py "$@"
+    fi
+    exec "$PYTHON_BIN" "$ROOT/scripts/refresh_health_coverage.py" "$@"
+    ;;
   *)
-    echo "uso: $0 [reminder|download|sync|download-sync|login] [args...]" >&2
+    echo "uso: $0 [reminder|download|sync|download-sync|refresh-coverage|login] [args...]" >&2
     exit 2
     ;;
 esac

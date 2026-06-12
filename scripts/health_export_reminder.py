@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo
 
 
 DEFAULT_MESSAGE = (
-    "Recordatorio salud: exporta Apple Health en el iPhone, enviate el ZIP "
-    "(exportar.zip) por WhatsApp a tu chat personal. El servidor lo descargara "
+    "Recordatorio salud: exporta Apple Health en el iPhone y envia el ZIP "
+    "(exportar.zip) por Telegram a este bot. El servidor lo importara "
     "automaticamente a las 19:00."
 )
 

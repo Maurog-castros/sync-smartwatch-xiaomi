@@ -78,6 +78,11 @@ class ImportResult:
     import_mode: str
     skipped: bool = False
     skip_reason: str | None = None
+    previous_latest_date: date | None = None
+    new_latest_date: date | None = None
+    backfill_start_date: date | None = None
+    backfill_end_date: date | None = None
+    backfill_missing_dates: list[str] | None = None
 
 
 class AppleHealthXmlImporter:
@@ -111,6 +116,7 @@ class AppleHealthXmlImporter:
             effective_start = self.resolve_incremental_start(user_name, overlap_days)
 
         self.database.initialize()
+        previous_latest = self.repository.get_latest_rollup_date(user_name)
         rollups = self._parse_rollups(xml_path, effective_start, end_date)
         with self.database.connect() as connection:
             if replace:
@@ -119,11 +125,37 @@ class AppleHealthXmlImporter:
             self._sync_daily_metrics(connection, user_name, rollups)
 
         latest_imported = max(rollups) if rollups else None
+        new_latest = self.repository.get_latest_rollup_date(user_name)
+        backfill_start = None
+        backfill_end = None
+        backfill_missing: list[str] = []
+        if (
+            previous_latest is not None
+            and new_latest is not None
+            and new_latest > previous_latest
+        ):
+            backfill_start = previous_latest + timedelta(days=1)
+            backfill_end = new_latest
+            if backfill_start <= backfill_end:
+                backfill_missing = [
+                    day.isoformat()
+                    for day in self.repository.find_missing_rollup_dates(
+                        user_name,
+                        backfill_start,
+                        backfill_end,
+                    )
+                ]
+
         return ImportResult(
             imported_days=len(rollups),
             start_date=effective_start,
-            end_date=end_date or latest_imported,
+            end_date=end_date or latest_imported or new_latest,
             import_mode=import_mode,
+            previous_latest_date=previous_latest,
+            new_latest_date=new_latest,
+            backfill_start_date=backfill_start,
+            backfill_end_date=backfill_end,
+            backfill_missing_dates=backfill_missing,
         )
 
     def import_export(
@@ -177,12 +209,15 @@ class AppleHealthXmlImporter:
             export_path=export_path,
             export_sha256=export_sha256,
             export_size=export_size,
-            last_metric_date=result.end_date,
+            last_metric_date=result.new_latest_date or result.end_date,
             imported_days=result.imported_days,
             import_mode=result.import_mode,
         )
         state.save(state_path)
         return result
+
+    def build_datamart_coverage_report(self, user_name: str) -> dict[str, object]:
+        return self.repository.get_datamart_coverage(user_name)
 
     def _parse_rollups(
         self,
@@ -509,6 +544,17 @@ def main() -> None:
                 "import_mode": result.import_mode,
                 "start_date": result.start_date.isoformat() if result.start_date else None,
                 "end_date": result.end_date.isoformat() if result.end_date else None,
+                "previous_latest_date": (
+                    result.previous_latest_date.isoformat()
+                    if result.previous_latest_date
+                    else None
+                ),
+                "new_latest_date": (
+                    result.new_latest_date.isoformat()
+                    if result.new_latest_date
+                    else None
+                ),
+                "backfill_missing_dates": result.backfill_missing_dates or [],
                 "db_backend": args.db_backend,
                 "db_path": str(args.db_path) if args.db_backend == "sqlite" else None,
             },

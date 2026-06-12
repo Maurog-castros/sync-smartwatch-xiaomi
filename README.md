@@ -113,6 +113,29 @@ PYTHONPATH=src .venv/bin/python scripts/sync_apple_health_export.py \
 
 Estado del ultimo import: `storage/import_state.json` (ignorado por git).
 
+### Recuperar huecos (varios dias sin enviar ZIP)
+
+Apple siempre manda el historial completo en el ZIP. Si dejas de enviar 3 dias y
+al 4.º dia mandas un export nuevo, el import incremental:
+
+1. Toma la ultima fecha ya guardada en BD (ej. lunes).
+2. Reprocesa desde `ultima_fecha - 14 dias` (solape por correcciones de Apple).
+3. Hace upsert de **cada dia** presente en el XML, incluyendo mar/mie/jue del hueco.
+
+La BD no deberia quedar con huecos de dias que Apple exporto. Tras cada import se
+genera `storage/datamart_coverage.json` con fechas faltantes reales en el rango
+(dias sin ningun registro en Salud, no dias sin ZIP).
+
+Ejemplo de consulta datamart:
+
+```sql
+SELECT metric_date, steps, sleep_minutes, heart_rate_avg_bpm
+FROM daily_health_rollups
+WHERE user_name = 'Mauro'
+  AND metric_date BETWEEN '2026-06-01' AND '2026-06-30'
+ORDER BY metric_date;
+```
+
 ## Automatizacion WhatsApp Web + cron
 
 Flujo diario:

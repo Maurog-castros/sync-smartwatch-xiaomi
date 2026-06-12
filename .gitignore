@@ -156,6 +156,9 @@ storage/*.sqlite3-*
 storage/*.zip
 storage/exportar/
 storage/import_state.json
+storage/datamart_coverage.json
+storage/health_coverage.json
+storage/telegram_sync_state.json
 storage/whatsapp_sync_state.json
 storage/whatsapp-playwright-profile/
 storage/incoming/
