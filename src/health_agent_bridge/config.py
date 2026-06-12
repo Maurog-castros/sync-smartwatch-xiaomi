@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     api_key: str = "change-me-local-only"
     db_path: Path = Path("storage/health_agent_bridge.sqlite3")
+    db_backend: str = "sqlite"
+    database_url: str | None = None
     workspace_path: Path = Path("agent-workspace")
     user_name: str = "Mauro"
     timezone: str = "America/Santiago"

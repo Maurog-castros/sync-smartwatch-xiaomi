@@ -53,6 +53,76 @@ Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/health/summary/today `
 - `agent-workspace/context/health_alerts.json`
 - `agent-workspace/context/reminders.json`
 
+## Apple Health XML Import
+
+Coloca la exportacion de Apple Health en una carpeta local ignorada por git, por
+ejemplo:
+
+```text
+storage/exportar/apple_health_export/exportar.xml
+```
+
+Importar a SQLite:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python .\scripts\import_apple_health.py `
+  .\storage\exportar\apple_health_export\exportar.xml `
+  --user-name Mauro
+```
+
+Importar solo un rango:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python .\scripts\import_apple_health.py `
+  .\storage\exportar\apple_health_export\exportar.xml `
+  --from-date 2026-06-01 `
+  --to-date 2026-06-12
+```
+
+La tabla principal para analitica es `daily_health_rollups`, con una fila por
+dia y dimensiones listas para queries:
+
+```sql
+SELECT day_name, AVG(steps), AVG(sleep_minutes)
+FROM daily_health_rollups
+WHERE user_name = 'Mauro'
+GROUP BY day_of_week, day_name
+ORDER BY day_of_week;
+```
+
+```sql
+SELECT year, month, AVG(steps), AVG(heart_rate_avg_bpm)
+FROM daily_health_rollups
+WHERE user_name = 'Mauro'
+GROUP BY year, month
+ORDER BY year, month;
+```
+
+## Ubuntu Server Deployment
+
+El servidor puede reutilizar el PostgreSQL existente si la app corre en la red
+Docker `openclaw_openclaw_net` y usa el host interno `postgres-memory`.
+
+Crear `.env.server` en el servidor:
+
+```env
+HEALTH_BRIDGE_API_KEY=change-me
+HEALTH_BRIDGE_DB_BACKEND=postgres
+HEALTH_BRIDGE_DATABASE_URL=postgresql://openclaw:change-me@postgres-memory:5432/health_agent_bridge
+HEALTH_BRIDGE_WORKSPACE_PATH=agent-workspace
+HEALTH_BRIDGE_USER_NAME=Mauro
+HEALTH_BRIDGE_TIMEZONE=America/Santiago
+```
+
+Levantar API:
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+curl -s http://127.0.0.1:8012/healthz
+```
+
 ## Medical Boundary
 
 Este proyecto no diagnostica enfermedades. Solo resume tendencias de habitos y

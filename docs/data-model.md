@@ -13,6 +13,31 @@ One row per user and metric date.
 - average_heart_rate_bpm
 - oxygen_saturation_percent
 
+`NULL` means no source reported the metric for that date. It must not be
+interpreted as zero.
+
+## daily_health_rollups
+
+Datamart table for agent trends and dashboards. One row per user and day.
+
+- year
+- month
+- day_of_week
+- day_name
+- steps
+- distance_meters
+- active_energy_kcal
+- sleep_minutes
+- heart_rate_avg_bpm
+- heart_rate_min_bpm
+- heart_rate_max_bpm
+- heart_rate_samples
+- weight_kg
+- sources_json
+
+Missing wearable usage creates `NULL` values. Agents must exclude `NULL` values
+from averages and should report data coverage separately.
+
 ## sleep_sessions
 
 Sleep intervals may cross midnight.

@@ -153,6 +153,8 @@ vite.config.ts.timestamp-*
 # Local health bridge data
 storage/*.sqlite3
 storage/*.sqlite3-*
+storage/*.zip
+storage/exportar/
 agent-workspace/context/*.md
 agent-workspace/context/*.json
 apple-health-export/

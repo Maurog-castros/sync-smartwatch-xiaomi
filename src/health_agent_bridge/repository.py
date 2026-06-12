@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from .database import Database
@@ -135,10 +135,18 @@ class HealthRepository:
 
     def get_day_context(self, user_name: str, summary_date: date) -> dict[str, Any]:
         metric_date = summary_date.isoformat()
+        week_start = (summary_date - timedelta(days=7)).isoformat()
         with self.database.connect() as connection:
             metrics = connection.execute(
                 """
                 SELECT * FROM daily_health_metrics
+                WHERE user_name = ? AND metric_date = ?
+                """,
+                (user_name, metric_date),
+            ).fetchone()
+            rollup = connection.execute(
+                """
+                SELECT * FROM daily_health_rollups
                 WHERE user_name = ? AND metric_date = ?
                 """,
                 (user_name, metric_date),
@@ -165,15 +173,24 @@ class HealthRepository:
                 FROM daily_health_metrics
                 WHERE user_name = ?
                   AND metric_date < ?
-                  AND metric_date >= date(?, '-7 days')
+                  AND metric_date >= ?
                   AND resting_heart_rate_bpm IS NOT NULL
                 """,
-                (user_name, metric_date, metric_date),
+                (user_name, metric_date, week_start),
             ).fetchone()
+
+        rollup_sleep_minutes = rollup["sleep_minutes"] if rollup is not None else None
+        session_sleep_minutes = int(sleep["asleep_minutes"] or 0)
+        sleep_minutes = (
+            session_sleep_minutes
+            if session_sleep_minutes > 0
+            else rollup_sleep_minutes
+        )
 
         return {
             "metrics": dict(metrics) if metrics is not None else None,
-            "sleep_minutes": int(sleep["asleep_minutes"] or 0),
+            "rollup": dict(rollup) if rollup is not None else None,
+            "sleep_minutes": sleep_minutes,
             "notes": [dict(note) for note in notes],
             "weekly_resting_hr": week["avg_resting_hr"],
         }

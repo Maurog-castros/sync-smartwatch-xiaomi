@@ -31,7 +31,7 @@ class HealthSummaryService:
 
     def generate_daily(self, user_name: str, summary_date: date) -> DailySummary:
         context = self.repository.get_day_context(user_name, summary_date)
-        metrics = context["metrics"] or {}
+        metrics = context["metrics"] or context["rollup"] or {}
         sleep_minutes = context["sleep_minutes"]
         alerts = self._build_alerts(metrics, sleep_minutes, context)
         reminders = self._build_reminders(metrics, sleep_minutes, context)
@@ -57,7 +57,7 @@ class HealthSummaryService:
     def _build_alerts(
         self,
         metrics: dict[str, Any],
-        sleep_minutes: int,
+        sleep_minutes: int | None,
         context: dict[str, Any],
     ) -> list[dict[str, Any]]:
         alerts: list[dict[str, Any]] = []
@@ -68,7 +68,7 @@ class HealthSummaryService:
             note["stress_level"] == "high" for note in context["notes"]
         )
 
-        if sleep_minutes and sleep_minutes < self.LOW_SLEEP_MINUTES:
+        if sleep_minutes is not None and sleep_minutes < self.LOW_SLEEP_MINUTES:
             alerts.append(
                 {
                     "category": "sleep",
@@ -96,7 +96,7 @@ class HealthSummaryService:
                     "message": "Resting heart rate is above recent baseline.",
                 }
             )
-        if sleep_minutes < self.LOW_SLEEP_MINUTES and stress_high:
+        if sleep_minutes is not None and sleep_minutes < self.LOW_SLEEP_MINUTES and stress_high:
             alerts.append(
                 {
                     "category": "recovery",
@@ -110,7 +110,7 @@ class HealthSummaryService:
     def _build_reminders(
         self,
         metrics: dict[str, Any],
-        sleep_minutes: int,
+        sleep_minutes: int | None,
         context: dict[str, Any],
     ) -> list[dict[str, str]]:
         reminders: list[dict[str, str]] = []
@@ -119,7 +119,7 @@ class HealthSummaryService:
             note["stress_level"] == "high" for note in context["notes"]
         )
 
-        if sleep_minutes < self.LOW_SLEEP_MINUTES:
+        if sleep_minutes is not None and sleep_minutes < self.LOW_SLEEP_MINUTES:
             reminders.append(
                 {
                     "category": "sleep",
@@ -159,12 +159,16 @@ class HealthSummaryService:
         user_name: str,
         summary_date: date,
         metrics: dict[str, Any],
-        sleep_minutes: int,
+        sleep_minutes: int | None,
         alerts: list[dict[str, Any]],
         reminders: list[dict[str, str]],
         notes: list[dict[str, str | None]],
     ) -> str:
-        sleep_hours = sleep_minutes / 60 if sleep_minutes else 0
+        sleep_label = (
+            f"{sleep_minutes / 60:.1f} horas"
+            if sleep_minutes is not None
+            else "sin dato"
+        )
         steps = metrics.get("steps", "sin dato")
         distance = metrics.get("distance_meters", "sin dato")
         resting_hr = metrics.get("resting_heart_rate_bpm", "sin dato")
@@ -192,7 +196,7 @@ class HealthSummaryService:
                 "",
                 "## Biometrics",
                 "",
-                f"- Sueno: {sleep_hours:.1f} horas",
+                f"- Sueno: {sleep_label}",
                 f"- Pasos: {steps}",
                 f"- Distancia: {distance} metros",
                 f"- Ejercicio: {exercise} minutos",

@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]==0.34.0",
     "pydantic-settings==2.7.1",
     "tzdata==2026.1",
+    "psycopg[binary]==3.2.3",
 ]
 
 [tool.setuptools.packages.find]

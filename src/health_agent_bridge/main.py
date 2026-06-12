@@ -12,7 +12,11 @@ from .schemas import HealthImportPayload, ImportResult, SummaryResponse
 from .summary_service import HealthSummaryService
 from .workspace import AgentWorkspaceWriter
 
-database = Database(settings.db_path)
+database = Database(
+    db_path=settings.db_path,
+    backend=settings.db_backend,
+    database_url=settings.database_url,
+)
 repository = HealthRepository(database)
 workspace_writer = AgentWorkspaceWriter(settings.workspace_path)
 summary_service = HealthSummaryService(repository, workspace_writer)
