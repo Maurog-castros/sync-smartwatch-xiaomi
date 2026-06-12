@@ -155,6 +155,11 @@ storage/*.sqlite3
 storage/*.sqlite3-*
 storage/*.zip
 storage/exportar/
+storage/import_state.json
+storage/whatsapp_sync_state.json
+storage/whatsapp-playwright-profile/
+storage/incoming/
+storage/logs/
 agent-workspace/context/*.md
 agent-workspace/context/*.json
 apple-health-export/

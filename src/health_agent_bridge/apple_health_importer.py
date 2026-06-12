@@ -5,11 +5,15 @@ import json
 import sqlite3
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .config import settings
 from .database import Database
+from .import_state import ImportState
+from .repository import HealthRepository
+
+DEFAULT_INCREMENTAL_OVERLAP_DAYS = 14
 
 
 STEP_COUNT = "HKQuantityTypeIdentifierStepCount"
@@ -66,9 +70,30 @@ class DayAccumulator:
         )
 
 
+@dataclass(frozen=True)
+class ImportResult:
+    imported_days: int
+    start_date: date | None
+    end_date: date | None
+    import_mode: str
+    skipped: bool = False
+    skip_reason: str | None = None
+
+
 class AppleHealthXmlImporter:
     def __init__(self, database: Database) -> None:
         self.database = database
+        self.repository = HealthRepository(database)
+
+    def resolve_incremental_start(
+        self,
+        user_name: str,
+        overlap_days: int = DEFAULT_INCREMENTAL_OVERLAP_DAYS,
+    ) -> date | None:
+        latest = self.repository.get_latest_rollup_date(user_name)
+        if latest is None:
+            return None
+        return latest - timedelta(days=overlap_days)
 
     def import_xml(
         self,
@@ -77,16 +102,87 @@ class AppleHealthXmlImporter:
         start_date: date | None = None,
         end_date: date | None = None,
         replace: bool = True,
-    ) -> int:
+        incremental: bool = False,
+        overlap_days: int = DEFAULT_INCREMENTAL_OVERLAP_DAYS,
+    ) -> ImportResult:
+        import_mode = "incremental" if incremental else "full"
+        effective_start = start_date
+        if incremental and effective_start is None:
+            effective_start = self.resolve_incremental_start(user_name, overlap_days)
+
         self.database.initialize()
-        rollups = self._parse_rollups(xml_path, start_date, end_date)
+        rollups = self._parse_rollups(xml_path, effective_start, end_date)
         with self.database.connect() as connection:
             if replace:
-                self._delete_existing(connection, user_name, start_date, end_date)
+                self._delete_existing(connection, user_name, effective_start, end_date)
             self._upsert_rollups(connection, user_name, rollups)
             self._sync_daily_metrics(connection, user_name, rollups)
 
-        return len(rollups)
+        latest_imported = max(rollups) if rollups else None
+        return ImportResult(
+            imported_days=len(rollups),
+            start_date=effective_start,
+            end_date=end_date or latest_imported,
+            import_mode=import_mode,
+        )
+
+    def import_export(
+        self,
+        export_path: Path,
+        user_name: str,
+        *,
+        state_path: Path,
+        incremental: bool = False,
+        overlap_days: int = DEFAULT_INCREMENTAL_OVERLAP_DAYS,
+        force: bool = False,
+        end_date: date | None = None,
+    ) -> ImportResult:
+        from .export_archive import (  # noqa: PLC0415
+            export_file_sha256,
+            resolve_export_xml,
+        )
+
+        xml_path = resolve_export_xml(export_path)
+        export_sha256 = export_file_sha256(export_path)
+        export_size = export_path.stat().st_size
+        state = ImportState.load(state_path, user_name)
+
+        if (
+            incremental
+            and not force
+            and state.last_export_sha256 == export_sha256
+            and state.last_export_size == export_size
+        ):
+            return ImportResult(
+                imported_days=0,
+                start_date=None,
+                end_date=None,
+                import_mode="incremental",
+                skipped=True,
+                skip_reason="export_unchanged",
+            )
+
+        result = self.import_xml(
+            xml_path=xml_path,
+            user_name=user_name,
+            end_date=end_date,
+            replace=True,
+            incremental=incremental,
+            overlap_days=overlap_days,
+        )
+        if result.skipped:
+            return result
+
+        state.touch_import(
+            export_path=export_path,
+            export_sha256=export_sha256,
+            export_size=export_size,
+            last_metric_date=result.end_date,
+            imported_days=result.imported_days,
+            import_mode=result.import_mode,
+        )
+        state.save(state_path)
+        return result
 
     def _parse_rollups(
         self,
@@ -355,7 +451,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Import Apple Health XML into local SQLite rollups.",
     )
-    parser.add_argument("xml_path", type=Path)
+    parser.add_argument("xml_path", type=Path, nargs="?")
     parser.add_argument("--user-name", default=settings.user_name)
     parser.add_argument("--db-path", type=Path, default=settings.db_path)
     parser.add_argument("--db-backend", default=settings.db_backend)
@@ -363,29 +459,61 @@ def main() -> None:
     parser.add_argument("--from-date", type=date.fromisoformat, default=None)
     parser.add_argument("--to-date", type=date.fromisoformat, default=None)
     parser.add_argument("--keep-existing", action="store_true")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Import only recent days based on the latest date in the database.",
+    )
+    parser.add_argument("--overlap-days", type=int, default=DEFAULT_INCREMENTAL_OVERLAP_DAYS)
+    parser.add_argument("--export-zip", type=Path, default=None)
+    parser.add_argument("--state-path", type=Path, default=Path("storage/import_state.json"))
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
-    importer = AppleHealthXmlImporter(
-        Database(
-            db_path=args.db_path,
-            backend=args.db_backend,
-            database_url=args.database_url,
+    database = Database(
+        db_path=args.db_path,
+        backend=args.db_backend,
+        database_url=args.database_url,
+    )
+    importer = AppleHealthXmlImporter(database)
+
+    if args.export_zip is not None:
+        result = importer.import_export(
+            export_path=args.export_zip,
+            user_name=args.user_name,
+            state_path=args.state_path,
+            incremental=args.incremental,
+            overlap_days=args.overlap_days,
+            force=args.force,
+            end_date=args.to_date,
         )
-    )
-    days = importer.import_xml(
-        xml_path=args.xml_path,
-        user_name=args.user_name,
-        start_date=args.from_date,
-        end_date=args.to_date,
-        replace=not args.keep_existing,
-    )
+    else:
+        if args.xml_path is None:
+            raise SystemExit("Provide xml_path or --export-zip")
+        result = importer.import_xml(
+            xml_path=args.xml_path,
+            user_name=args.user_name,
+            start_date=args.from_date,
+            end_date=args.to_date,
+            replace=not args.keep_existing,
+            incremental=args.incremental,
+            overlap_days=args.overlap_days,
+        )
+
     print(
         json.dumps(
             {
-                "imported_days": days,
+                "imported_days": result.imported_days,
+                "skipped": result.skipped,
+                "skip_reason": result.skip_reason,
+                "import_mode": result.import_mode,
+                "start_date": result.start_date.isoformat() if result.start_date else None,
+                "end_date": result.end_date.isoformat() if result.end_date else None,
                 "db_backend": args.db_backend,
                 "db_path": str(args.db_path) if args.db_backend == "sqlite" else None,
-            }
+            },
+            ensure_ascii=True,
+            indent=2,
         )
     )
 

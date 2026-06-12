@@ -133,6 +133,20 @@ class HealthRepository:
                 ],
             )
 
+    def get_latest_rollup_date(self, user_name: str) -> date | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT MAX(metric_date) AS latest_date
+                FROM daily_health_rollups
+                WHERE user_name = ?
+                """,
+                (user_name,),
+            ).fetchone()
+        if row is None or row["latest_date"] is None:
+            return None
+        return date.fromisoformat(str(row["latest_date"]))
+
     def get_day_context(self, user_name: str, summary_date: date) -> dict[str, Any]:
         metric_date = summary_date.isoformat()
         week_start = (summary_date - timedelta(days=7)).isoformat()

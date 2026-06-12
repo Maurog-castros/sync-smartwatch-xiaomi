@@ -81,6 +81,78 @@ $env:PYTHONPATH = "src"
   --to-date 2026-06-12
 ```
 
+## Apple Health ZIP incremental (WhatsApp workflow)
+
+Apple Health siempre exporta todo el historial en un ZIP. El bridge no puede pedir
+solo lo nuevo al iPhone, pero si puede:
+
+- detectar si el ZIP no cambio y saltar el import
+- importar solo los ultimos dias en la base (`--incremental`)
+- reescribir un solapamiento de 14 dias por si Apple corrige datos viejos
+
+Flujo recomendado:
+
+1. Exportar en Salud (iPhone).
+2. Enviarte el ZIP por WhatsApp y guardarlo en `storage/exportar.zip`.
+3. Correr sync incremental y refrescar contexto para agentes.
+
+```bash
+cd /home/mauro/Dev/sync-smartwatch-xiaomi
+PYTHONPATH=src .venv/bin/python scripts/sync_apple_health_export.py \
+  --refresh-summary
+```
+
+Si no pasas ruta, usa el ZIP mas nuevo dentro de `storage/`.
+
+Primera vez o reimport total:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/sync_apple_health_export.py \
+  storage/exportar.zip --full --refresh-summary
+```
+
+Estado del ultimo import: `storage/import_state.json` (ignorado por git).
+
+## Automatizacion WhatsApp Web + cron
+
+Flujo diario:
+
+1. **18:30** cron envia recordatorio para exportar Salud en el iPhone y mandarte el ZIP
+   por WhatsApp a tu chat personal (`Mauro Castro Pers (Tú)`).
+2. **19:00** cron abre WhatsApp Web con sesion persistente, descarga `exportar.zip`,
+   lo copia a `storage/exportar.zip`, corre import incremental y refresca el resumen
+   para Fede.
+
+### Setup una sola vez
+
+```bash
+cd /home/mauro/Dev/sync-smartwatch-xiaomi
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-automation.txt
+# En Ubuntu 26 usa Google Chrome del sistema (channel=chrome)
+# .venv/bin/playwright install chromium
+cp .env.example .env
+# Edita .env con HEALTH_EXPORT_TELEGRAM_BOT_TOKEN si quieres recordatorio por Telegram
+
+# Vincular WhatsApp Web (escanea QR una vez)
+./scripts/run_whatsapp_health_pipeline.sh login
+```
+
+### Probar manualmente
+
+```bash
+./scripts/run_whatsapp_health_pipeline.sh reminder
+./scripts/run_whatsapp_health_pipeline.sh download-sync
+```
+
+### Instalar cron
+
+```bash
+./scripts/install_health_export_cron.sh
+```
+
+Perfil Playwright guardado en `storage/whatsapp-playwright-profile/` (ignorado por git).
+
 La tabla principal para analitica es `daily_health_rollups`, con una fila por
 dia y dimensiones listas para queries:
 
