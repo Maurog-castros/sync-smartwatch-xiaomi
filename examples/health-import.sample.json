@@ -1,0 +1,45 @@
+{
+  "user_name": "Mauro",
+  "metric_date": "2026-06-12",
+  "daily_metrics": {
+    "steps": 3200,
+    "distance_meters": 1500,
+    "active_energy_kcal": 280,
+    "exercise_minutes": 18,
+    "resting_heart_rate_bpm": 78,
+    "average_heart_rate_bpm": 84,
+    "oxygen_saturation_percent": 97.5
+  },
+  "sleep_sessions": [
+    {
+      "started_at": "2026-06-11T23:50:00-04:00",
+      "ended_at": "2026-06-12T05:10:00-04:00",
+      "asleep_minutes": 320,
+      "source": "apple_health_export"
+    }
+  ],
+  "heart_rate_samples": [
+    {
+      "sampled_at": "2026-06-12T08:30:00-04:00",
+      "bpm": 82,
+      "source": "apple_health_export"
+    }
+  ],
+  "activity_sessions": [
+    {
+      "activity_type": "walking",
+      "started_at": "2026-06-12T12:20:00-04:00",
+      "ended_at": "2026-06-12T12:42:00-04:00",
+      "distance_meters": 1500,
+      "active_energy_kcal": 120,
+      "source": "mi_fitness"
+    }
+  ],
+  "wellness_notes": [
+    {
+      "noted_at": "2026-06-12T09:00:00-04:00",
+      "stress_level": "high",
+      "body": "Dormir poco, agenda cargada."
+    }
+  ]
+}
